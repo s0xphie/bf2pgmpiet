@@ -1,3 +1,20 @@
+#!/usr/bin/env python3
+"""
+fbf_compiler.py -- folded (squarish) Brainfuck -> pgmpiet compiler, WITH loops.
+
+Not one long row: the program is cut only at bracket-depth-0 boundaries into
+segments that are stacked and joined by tape-neutral push+pointer carriage-
+return connectors, so every segment reuses the verified horizontal loop
+detours while the overall image stays roughly square.  A white leader keeps
+the interpreter's fixed top-left start pointing at the program.
+
+Correct Piet colour rule (hue*3+lightness; command = hue-change*3 + light-change).
+Self-contained: needs only the standard library.
+
+Usage:
+    python3 fbf_compiler.py program.bf [tape_size]   # -> fbf_out.pgm  (P5)
+    python3 fbf_compiler.py "++[>+++<-]>." [tape_size]
+"""
 import sys, os, math
 
 STEPS=[112,131,134,148,155,162,170,177,184,191,198,205,212,219,226,233,240,247]
@@ -211,11 +228,12 @@ class GridBuilder:
                 self.set(x_open, y, WHITE)
         # turn1: down -> right, r=3, at column x_open (free-entry + 6-cell chain)
         end_row = self._lay_chain_vertical(x_open, row_start, 3, base_colour)
-        # turn2 (right -> up) now needs 3 cells (free-entry+push+pointer),
-        # ending exactly at x_target, so it must START at x_target-2.
-        t2_start = x_target - 2
+        # turn2: right -> UP needs r=3 (right+3=up); the chain is free-entry +
+        # chain_deltas(3) [6 cells] so its pointer lands at t2_start+6; we want
+        # that pointer at x_target so the climb happens in the marker column.
+        t2_start = x_target - 6
         self._white_hrange(end_row, x_open + 1, t2_start - 1)
-        self._lay_chain_horizontal(t2_start, end_row, 1, +1, 0)
+        self._lay_chain_horizontal(t2_start, end_row, 3, +1, 0)
         # climb white from just below the approach cells up to just above turn2
         self._white_vrange(x_target, 3, end_row - 1)
 
@@ -292,28 +310,46 @@ def connect_fixed(cells, ex, ey, color, block_a_bottom, LM):
 
 
 class SegCompiler(Compiler):
+    def move(self, net):
+        # coalesced >/< : roll(T, net mod T) in one op
+        rv = net % self.T
+        if rv == 0: return
+        self.push_literal(self.T); self.push_literal(rv); self.emit(C['roll'])
+    def addN(self, net):
+        # coalesced +/- : single add/subtract of |net|
+        if net > 0: self.push_literal(net); self.emit(C['add'])
+        elif net < 0: self.push_literal(-net); self.emit(C['subtract'])
     def compile(self,bf):
         self.loops=[]; st=[]; depth=0; self.maxdepth=0; self.bnd=[]
         for _ in range(self.T):
             self.emit(C['push']); self.emit(C['not']); self.bnd.append(len(self.row))
-        for ch in bf:
-            if ch=='>': self.gt()
-            elif ch=='<': self.lt()
-            elif ch=='+': self.plus()
-            elif ch=='-': self.minus()
-            elif ch=='.': self.dot()
-            elif ch==',': self.comma()
+        i=0; n=len(bf)
+        while i<n:
+            ch=bf[i]
+            if ch in '<>':
+                net=0
+                while i<n and bf[i] in '<>':
+                    net += 1 if bf[i]=='>' else -1; i+=1
+                self.move(net)
+            elif ch in '+-':
+                net=0
+                while i<n and bf[i] in '+-':
+                    net += 1 if bf[i]=='+' else -1; i+=1
+                self.addN(net)
+            elif ch=='.': self.dot(); i+=1
+            elif ch==',': self.comma(); i+=1
             elif ch=='[':
                 depth+=1; self.maxdepth=max(self.maxdepth,depth)
                 self.emit(C['duplicate']); self.emit(C['not']); xp=self.emit(C['pointer'])
                 self.row.append('WHITE'); self.cur=0; xb=self.emit_free()
-                st.append({'x_open_ptr':xp,'x_body':xb,'depth':depth})
+                st.append({'x_open_ptr':xp,'x_body':xb,'depth':depth}); i+=1
             elif ch==']':
                 info=st.pop()
                 self.emit(C['duplicate']); self.emit(C['not']); self.emit(C['not']); xp=self.emit(C['pointer'])
                 self.row.append('WHITE'); self.cur=0; xa=self.emit_free()
-                info['x_close_ptr']=xp; info['x_after']=xa; self.loops.append(info); depth-=1
-            if depth==0: self.bnd.append(len(self.row))   # boundary AFTER this op (exclusive index)
+                info['x_close_ptr']=xp; info['x_after']=xa; self.loops.append(info); depth-=1; i+=1
+            else: i+=1
+            if depth==0: self.bnd.append(len(self.row))
         assert not st,"unbalanced []"
         return self.row,self.loops,self.bnd
 
@@ -363,6 +399,13 @@ def build(row, loops, bnd, S, LM=8):
     return W,H,g
 
 
+def auto_tape(bf):
+    pos=0; mx=0
+    for c in bf:
+        if c=='>': pos+=1; mx=max(mx,pos)
+        elif c=='<': pos-=1
+    return max(4, mx+2)   # +2 buffer, floor 4: avoids ring degeneracy (+1==-1 at T=2) and edge wrap
+
 def compile_to(bf,T,path):
     co=SegCompiler(T); row,loops,bnd=co.compile(bf)
     S=max(24,int(math.ceil(math.sqrt(len(row))*1.5)))
@@ -378,5 +421,5 @@ if __name__=='__main__':
         out=os.path.splitext(os.path.basename(arg))[0]+'.pgm'   # match the input name
     else:
         bf=arg; out='fbf_out.pgm'
-    T=int(sys.argv[2]) if len(sys.argv)>2 else 300
-    W,H=compile_to(bf,T,out); print("compiled -> %dx%d (%s)"%(W,H,out))
+    T=int(sys.argv[2]) if len(sys.argv)>2 else auto_tape(bf)
+    W,H=compile_to(bf,T,out); print("compiled -> %dx%d (%s, tape=%d)"%(W,H,out,T))
