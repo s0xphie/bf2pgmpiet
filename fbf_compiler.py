@@ -1,20 +1,3 @@
-#!/usr/bin/env python3
-"""
-fbf_compiler.py -- folded (squarish) Brainfuck -> pgmpiet compiler, WITH loops.
-
-Not one long row: the program is cut only at bracket-depth-0 boundaries into
-segments that are stacked and joined by tape-neutral push+pointer carriage-
-return connectors, so every segment reuses the verified horizontal loop
-detours while the overall image stays roughly square.  A white leader keeps
-the interpreter's fixed top-left start pointing at the program.
-
-Correct Piet colour rule (hue*3+lightness; command = hue-change*3 + light-change).
-Self-contained: needs only the standard library.
-
-Usage:
-    python3 fbf_compiler.py program.bf [tape_size]   # -> fbf_out.pgm  (P5)
-    python3 fbf_compiler.py "++[>+++<-]>." [tape_size]
-"""
 import sys, os, math
 
 STEPS=[112,131,134,148,155,162,170,177,184,191,198,205,212,219,226,233,240,247]
@@ -390,6 +373,10 @@ def compile_to(bf,T,path):
 
 if __name__=='__main__':
     arg=sys.argv[1] if len(sys.argv)>1 else "++[>+++<-]>."
-    bf=open(arg).read() if os.path.isfile(arg) else arg
+    if os.path.isfile(arg):
+        bf=open(arg).read()
+        out=os.path.splitext(os.path.basename(arg))[0]+'.pgm'   # match the input name
+    else:
+        bf=arg; out='fbf_out.pgm'
     T=int(sys.argv[2]) if len(sys.argv)>2 else 300
-    W,H=compile_to(bf,T,'fbf_out.pgm'); print("compiled -> %dx%d (fbf_out.pgm)"%(W,H))
+    W,H=compile_to(bf,T,out); print("compiled -> %dx%d (%s)"%(W,H,out))
