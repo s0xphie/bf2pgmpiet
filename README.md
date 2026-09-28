@@ -6,7 +6,7 @@ bf2pgmpiet.py -- folded (squarish) Brainfuck -> pgmpiet compiler
 
 Usage:
 ```
-python3 bf2pgmpiet.py program.bf [tape_size]   # -> fbf_out.pgm  (P5)
+python3 bf2pgmpiet.py program.bf [tape_size]
 ```
 ```
 python3 bf2pgmpiet.py "++[>+++<-]>." [tape_size]
