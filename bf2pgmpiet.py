@@ -1,20 +1,3 @@
-#!/usr/bin/env python3
-"""
-fbf_compiler.py -- folded (squarish) Brainfuck -> pgmpiet compiler, WITH loops.
-
-Not one long row: the program is cut only at bracket-depth-0 boundaries into
-segments that are stacked and joined by tape-neutral push+pointer carriage-
-return connectors, so every segment reuses the verified horizontal loop
-detours while the overall image stays roughly square.  A white leader keeps
-the interpreter's fixed top-left start pointing at the program.
-
-Correct Piet colour rule (hue*3+lightness; command = hue-change*3 + light-change).
-Self-contained: needs only the standard library.
-
-Usage:
-    python3 fbf_compiler.py program.bf [tape_size]   # -> fbf_out.pgm  (P5)
-    python3 fbf_compiler.py "++[>+++<-]>." [tape_size]
-"""
 import sys, os, math
 
 STEPS=[112,131,134,148,155,162,170,177,184,191,198,205,212,219,226,233,240,247]
@@ -37,6 +20,7 @@ def cdeltas(n):
 
 
 class Compiler:
+    wrap = True   # BF 8-bit cell semantics (mod 256 after +/-)
     def __init__(self, tape_size=300):
         self.T = tape_size
         self.row = [0]
@@ -316,9 +300,13 @@ class SegCompiler(Compiler):
         if rv == 0: return
         self.push_literal(self.T); self.push_literal(rv); self.emit(C['roll'])
     def addN(self, net):
-        # coalesced +/- : single add/subtract of |net|
+        # coalesced +/- : single add/subtract of |net|, then wrap mod 256
+        # (standard BF 8-bit cell semantics) so wrapping programs work.
+        if net == 0: return
         if net > 0: self.push_literal(net); self.emit(C['add'])
-        elif net < 0: self.push_literal(-net); self.emit(C['subtract'])
+        else: self.push_literal(-net); self.emit(C['subtract'])
+        if getattr(self, 'wrap', True):
+            self.push_literal(256); self.emit(C['mod'])
     def compile(self,bf):
         self.loops=[]; st=[]; depth=0; self.maxdepth=0; self.bnd=[]
         for _ in range(self.T):
